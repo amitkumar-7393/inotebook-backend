@@ -1,4 +1,5 @@
 require("dotenv").config();
+
 const connectToMongo = require("./db");
 const express = require("express");
 const cors = require("cors");
@@ -29,22 +30,44 @@ app.get("/", (req, res) => {
   res.json({ message: "iNotebook API is running" });
 });
 
+let dbConnectionPromise;
+
+const connectToMongoOnce = async () => {
+  if (!dbConnectionPromise) {
+    dbConnectionPromise = connectToMongo().catch((error) => {
+      dbConnectionPromise = null;
+      throw error;
+    });
+  }
+
+  return dbConnectionPromise;
+};
+
+// Vercel par API request aane par database connect hoga.
+app.use("/api", async (req, res, next) => {
+  try {
+    await connectToMongoOnce();
+    next();
+  } catch (error) {
+    console.error("MongoDB connection failed:", error.message);
+    res.status(500).json({ error: "Database connection failed" });
+  }
+});
+
 app.use("/api/auth", require("./routes/auth"));
 app.use("/api/notes", require("./routes/notes"));
 
-const startServer = async () => {
-  try {
-    await connectToMongo();
-
-    app.listen(port, () => {
-      console.log(`iNotebook backend listening on port ${port}`);
+if (!process.env.VERCEL) {
+  connectToMongoOnce()
+    .then(() => {
+      app.listen(port, () => {
+        console.log(`iNotebook backend listening on port ${port}`);
+      });
+    })
+    .catch((error) => {
+      console.error("Failed to start backend:", error.message);
+      process.exit(1);
     });
-  } catch (error) {
-    console.error("Failed to start backend:", error.message);
-    process.exit(1);
-  }
-};
-
-startServer();
+}
 
 module.exports = app;
